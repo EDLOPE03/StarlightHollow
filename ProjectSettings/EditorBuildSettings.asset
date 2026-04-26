@@ -15,11 +15,11 @@ EditorBuildSettings:
     path: Assets/Scenes/Emberleaf Grove.unity
     guid: ac6fa4da9efa14f47a77fd2467e07ec6
   - enabled: 1
-    path: Assets/Scenes/Duskfall.unity
-    guid: 58f2b6913924c7e419a586fd236db73a
+    path: Assets/Scenes/DuskFall.unity
+    guid: 16c3cab14f57c54479c6211bbe795848
   - enabled: 1
     path: Assets/Scenes/Starlight Vault.unity
-    guid: 5e157715596baaa4aa1504940082d238
+    guid: c53ea9c3fe2a0dd47add2b8d6f731e0c
   - enabled: 1
     path: Assets/Scenes/Ending Menu.unity
     guid: 311ec4226fd83f44db10c64edf10a1a6
