@@ -68,9 +68,6 @@ public class UIManager : MonoBehaviour
     private bool       _isPaused = false;
     private string     _currentEnemyName = "";
 
-    // Cached reference to player input controller
-    private RPGCharacterAnims.RPGCharacterInputController _playerInput;
-
     // HP slider refs keyed by character name
     private Dictionary<string, Slider>          _hpSliders = new();
     private Dictionary<string, TextMeshProUGUI> _hpTexts   = new();
@@ -84,9 +81,6 @@ public class UIManager : MonoBehaviour
 
     void Start()
     {
-        // Cache the player input controller once at start
-        _playerInput = FindFirstObjectByType<RPGCharacterAnims.RPGCharacterInputController>();
-
         HideAllPanels();
 
         int level = SceneLoader.GetCurrentLevel();
@@ -132,7 +126,6 @@ public class UIManager : MonoBehaviour
 
     void Update()
     {
-        // Escape key toggles pause using new Input System
         if (Keyboard.current != null &&
             Keyboard.current.escapeKey.wasPressedThisFrame)
         {
@@ -147,13 +140,13 @@ public class UIManager : MonoBehaviour
     {
         switch (phase)
         {
-            case GamePhase.DifficultySelect: ShowOnly(difficultyPanel);                          break;
-            case GamePhase.ZoneSelect:       BuildZoneButtons(); ShowOnly(zonePanel);            break;
-            case GamePhase.DayExploration:   ShowOnly(gameHudPanel);                             break;
-            case GamePhase.Combat:           ShowOnly(combatPanel); combatLog?.SetText("");      break;
-            case GamePhase.NightPhase:       ShowOnly(nightPanel);                               break;
-            case GamePhase.LevelComplete:    ShowOnly(levelCompletePanel ?? gameHudPanel);       break;
-            case GamePhase.Ending:           ShowOnly(endingPanel);                              break;
+            case GamePhase.DifficultySelect: ShowOnly(difficultyPanel);                     break;
+            case GamePhase.ZoneSelect:       BuildZoneButtons(); ShowOnly(zonePanel);       break;
+            case GamePhase.DayExploration:   ShowOnly(gameHudPanel);                        break;
+            case GamePhase.Combat:           ShowOnly(combatPanel); combatLog?.SetText(""); break;
+            case GamePhase.NightPhase:       ShowOnly(nightPanel);                          break;
+            case GamePhase.LevelComplete:    ShowOnly(levelCompletePanel ?? gameHudPanel);  break;
+            case GamePhase.Ending:           ShowOnly(endingPanel);                         break;
         }
     }
 
@@ -210,10 +203,7 @@ public class UIManager : MonoBehaviour
 
         _panelBeforePause = GetActivePanel();
         _isPaused = true;
-
-        // Use PauseManager to stop everything
         PauseManager.Instance?.Pause();
-
         pausePanel.SetActive(true);
         Debug.Log("[UI] Game Paused");
     }
@@ -224,10 +214,7 @@ public class UIManager : MonoBehaviour
         if (pausePanel == null) return;
 
         _isPaused = false;
-
-        // Use PauseManager to restore everything
         PauseManager.Instance?.Resume();
-
         pausePanel.SetActive(false);
 
         if (_panelBeforePause != null)
@@ -242,6 +229,7 @@ public class UIManager : MonoBehaviour
         PauseManager.Instance?.Resume();
         SceneManager.LoadScene(0);
     }
+
     public void OnSavePressed()
     {
         SaveData current = SaveSystem.Load();
@@ -258,6 +246,15 @@ public class UIManager : MonoBehaviour
         txt.text = "SAVED ✓";
         yield return new WaitForSecondsRealtime(1.5f);
         txt.text = original;
+    }
+
+    // -------------------------------------------------------
+    // Night Continue — bridges button to GameLoop
+    // Wire NightContinueButton OnClick → UIManager → OnNightContinuePressed
+    public void OnNightContinuePressed()
+    {
+        GameLoop.Instance?.OnNightContinuePressed();
+        Debug.Log("[UI] Night continue pressed");
     }
 
     // -------------------------------------------------------
