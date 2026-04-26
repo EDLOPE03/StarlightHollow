@@ -1,5 +1,6 @@
 using UnityEngine;
 using System.Collections.Generic;
+using UnityEngine.InputSystem.UI;
 
 public class PauseManager : MonoBehaviour
 {
@@ -43,12 +44,19 @@ public class PauseManager : MonoBehaviour
         var combat = FindFirstObjectByType<CombatSystem>();
         if (combat != null) _pauseables.Add(combat);
 
-        // Animals or any enemy scripts
-        var animals = FindObjectsByType<MonoBehaviour>(FindObjectsSortMode.None);
-        foreach (var mb in animals)
+        // Catch enemy and animal movement scripts
+        var allBehaviours = FindObjectsByType<MonoBehaviour>(FindObjectsSortMode.None);
+        foreach (var mb in allBehaviours)
         {
-            // Catch any movement or AI scripts by name
             string typeName = mb.GetType().Name;
+
+            // NEVER disable these - they are needed for UI clicks to work
+            if (mb is UIManager) continue;
+            if (mb is PauseManager) continue;
+            if (mb is InputSystemUIInputModule) continue;
+            if (mb is UnityEngine.EventSystems.EventSystem) continue;
+            if (mb is UnityEngine.EventSystems.StandaloneInputModule) continue;
+
             if (typeName.Contains("Move") || 
                 typeName.Contains("Enemy") || 
                 typeName.Contains("AI") ||

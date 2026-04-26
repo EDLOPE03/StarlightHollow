@@ -11,6 +11,8 @@ public class SaveData
     public int    totalRuns              = 0;
     public int    highestDifficultyClear = 0;
     public string lastPlayed             = "";
+    public int    lastSceneBuildIndex    = 1;
+    public int    lastDifficulty         = 1;
 }
 
 public static class SaveSystem

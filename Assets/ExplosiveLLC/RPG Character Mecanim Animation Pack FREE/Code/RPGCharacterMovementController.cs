@@ -131,6 +131,9 @@ namespace RPGCharacterAnims
 		[Header("Debug Options")]
 		public bool debugMessages;
 
+        [Header("Drift Protection")]
+        [SerializeField] private float noInputStopThreshold = 0.05f;
+
 		private void Awake()
         {
             rpgCharacterController = GetComponent<RPGCharacterController>();
@@ -151,6 +154,11 @@ namespace RPGCharacterAnims
         {
             // Get other RPG Character components.
             superCharacterController = GetComponent<SuperCharacterController>();
+            if (superCharacterController != null)
+            {
+                // Use stable fixed-step updates to avoid scene-dependent control jitter.
+                superCharacterController.ConfigureFixedTimeStep(true, 60);
+            }
 
             // Check if Animator exists, otherwise pause script.
             animator = GetComponentInChildren<Animator>();
@@ -162,8 +170,15 @@ namespace RPGCharacterAnims
 			capCollider = GetComponent<CapsuleCollider>();
             rb = GetComponent<Rigidbody>();
 
-            // Set restraints on startup if using Rigidbody.
-            if (rb != null) { rb.constraints = RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ; }
+            // Align Rigidbody with SuperCharacterController movement to avoid tunneling/clipping.
+            if (rb != null)
+            {
+                rb.isKinematic = true;
+                rb.useGravity = false;
+                rb.interpolation = RigidbodyInterpolation.Interpolate;
+                rb.collisionDetectionMode = CollisionDetectionMode.ContinuousSpeculative;
+                rb.constraints = RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ;
+            }
 
             rpgCharacterController.OnLockMovement += LockMovement;
             rpgCharacterController.OnUnlockMovement += UnlockMovement;
@@ -202,6 +217,17 @@ namespace RPGCharacterAnims
         {
             // If the movement controller itself is disabled, this shouldn't run.
             if (!enabled) { return; }
+
+            // Never keep downward velocity while grounded; it can cause floor clipping on landing.
+            if (maintainingGround && currentVelocity.y < 0f)
+                currentVelocity = new Vector3(currentVelocity.x, 0f, currentVelocity.z);
+
+			// Kill tiny horizontal drift when grounded and no movement input is present.
+			if (maintainingGround && rpgCharacterController.moveInput.sqrMagnitude < 0.0001f) {
+				var planar = new Vector3(currentVelocity.x, 0f, currentVelocity.z);
+				if (planar.magnitude <= noInputStopThreshold)
+					currentVelocity = new Vector3(0f, currentVelocity.y, 0f);
+			}
 
             // Move the player by our velocity every frame.
             transform.position += currentVelocity * superCharacterController.deltaTime;

@@ -16,6 +16,9 @@ namespace RPGCharacterAnims
     {
         RPGCharacterController rpgCharacterController;
 
+		[Header("Input Filtering")]
+		[SerializeField, Range(0f, 1f)] private float moveDeadzone = 0.2f;
+
 		//InputSystem
 		public @RPGInputs rpgInputs;
 
@@ -103,6 +106,7 @@ namespace RPGCharacterAnims
 				inputJump = rpgInputs.RPGCharacter.Jump.IsPressed();
 				inputLightHit = rpgInputs.RPGCharacter.LightHit.WasPressedThisFrame();
 				inputMovement = rpgInputs.RPGCharacter.Move.ReadValue<Vector2>();
+				if (inputMovement.magnitude < moveDeadzone) { inputMovement = Vector2.zero; }
 				inputRoll = rpgInputs.RPGCharacter.Roll.WasPressedThisFrame();
 				inputAim = rpgInputs.RPGCharacter.Aim.IsPressed();
 				inputSwitchDown = rpgInputs.RPGCharacter.WeaponDown.WasPressedThisFrame();

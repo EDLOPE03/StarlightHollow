@@ -52,7 +52,16 @@ public class SceneLoader : MonoBehaviour
 
     public static string GetCurrentZoneName()
     {
-        return SceneManager.GetActiveScene().buildIndex switch
+        var scene = SceneManager.GetActiveScene();
+        string sceneName = scene.name.ToLowerInvariant();
+
+        // Prefer scene-name matching so level/zone labels stay correct even if build indices change.
+        if (sceneName.Contains("emberleaf")) return "Emberleaf Grove";
+        if (sceneName.Contains("dusk"))      return "Duskfall";
+        if (sceneName.Contains("starlight") && sceneName.Contains("vault"))
+            return "Starlight Vault";
+
+        return scene.buildIndex switch
         {
             SCENE_EMBERLEAF_GROVE => "Emberleaf Grove",
             SCENE_DUSKFALL        => "Duskfall",
@@ -63,7 +72,16 @@ public class SceneLoader : MonoBehaviour
 
     public static int GetCurrentLevel()
     {
-        return SceneManager.GetActiveScene().buildIndex switch
+        var scene = SceneManager.GetActiveScene();
+        string sceneName = scene.name.ToLowerInvariant();
+
+        // Prefer scene-name matching so HUD level stays correct if Build Settings order differs.
+        if (sceneName.Contains("emberleaf")) return 1;
+        if (sceneName.Contains("dusk"))      return 2;
+        if (sceneName.Contains("starlight") && sceneName.Contains("vault"))
+            return 3;
+
+        return scene.buildIndex switch
         {
             SCENE_EMBERLEAF_GROVE => 1,
             SCENE_DUSKFALL        => 2,

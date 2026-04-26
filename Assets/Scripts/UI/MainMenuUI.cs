@@ -29,7 +29,9 @@ public class MainMenuUI : MonoBehaviour
 
     public void OnContinuePressed()
     {
-        SceneManager.LoadScene(1);
+        SaveData save = SaveSystem.Load();
+        int sceneToLoad = Mathf.Clamp(save.lastSceneBuildIndex, 1, 3);
+        SceneManager.LoadScene(sceneToLoad);
     }
 
     public void OnQuitPressed()

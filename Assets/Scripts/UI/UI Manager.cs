@@ -6,6 +6,7 @@ using System.Linq;
 using UnityEngine.SceneManagement;
 using UnityEngine.Serialization;
 using UnityEngine.InputSystem;
+using UnityEngine.EventSystems;
 
 public class UIManager : MonoBehaviour
 {
@@ -42,6 +43,7 @@ public class UIManager : MonoBehaviour
     [SerializeField] private TextMeshProUGUI enemyLabel;
     [SerializeField] private Slider          enemyHpSlider;
     [SerializeField] private TextMeshProUGUI enemyHpText;
+    [SerializeField] private float           combatLogDownShift = 120f;
     private int _maxEnemyHp;
 
     [Header("─── Zone Selection ───")]
@@ -68,6 +70,10 @@ public class UIManager : MonoBehaviour
     private bool       _isPaused = false;
     private string     _currentEnemyName = "";
 
+    // Cache current level so it is always accurate
+    private int _currentLevel = 1;
+    private bool _combatLogShiftApplied;
+
     // HP slider refs keyed by character name
     private Dictionary<string, Slider>          _hpSliders = new();
     private Dictionary<string, TextMeshProUGUI> _hpTexts   = new();
@@ -81,10 +87,26 @@ public class UIManager : MonoBehaviour
 
     void Start()
     {
+                Debug.Log($"[UI START] Scene name: {SceneManager.GetActiveScene().name} " +
+                    $"Build index: {SceneManager.GetActiveScene().buildIndex} " +
+                    $"Level: {SceneLoader.GetCurrentLevel()}");
+
+        FixEventSystem();
+
+        // SceneLoader always accurate — reads direct from active scene index
+        _currentLevel = SceneLoader.GetCurrentLevel();
+        if (_currentLevel <= 0) _currentLevel = 1;
+
+        Debug.Log($"[UI] Scene started — Level: {_currentLevel} " +
+                $"Scene: {SceneManager.GetActiveScene().name}");
+
+        if (levelLabel) levelLabel.text = $"Level {_currentLevel} / 3";
+
+        ApplyCombatLogShift();
+
         HideAllPanels();
 
-        int level = SceneLoader.GetCurrentLevel();
-        if (level == 1)
+        if (_currentLevel == 1)
             ShowDifficultyScreen();
         else
             ShowOnly(gameHudPanel);
@@ -100,14 +122,14 @@ public class UIManager : MonoBehaviour
         GameLoop.OnZoneEnemySet   += HandleZoneEnemySet;
 
         TeamManager.OnTeamSetup        += BuildTeamCards;
-        TeamManager.OnCharacterDowned  += ch => AppendLog($"⚠ {ch.name} is downed!");
-        TeamManager.OnCharacterRevived += ch => AppendLog($"✦ {ch.name} revived!");
+        TeamManager.OnCharacterDowned  += ch => AppendLog($"! {ch.name} is downed!");
+        TeamManager.OnCharacterRevived += ch => AppendLog($"+ {ch.name} revived!");
 
-        CombatSystem.OnCombatStart        += () => { combatLog?.SetText(""); };
+        CombatSystem.OnCombatStart        += () => { combatLog?.SetText(""); _maxEnemyHp = 0; };
         CombatSystem.OnCharacterAttack    += (n, d) => AppendLog($"{n} deals {d} dmg →");
         CombatSystem.OnCharacterTakeDamage+= (n, d) => AppendLog($"← {n} takes {d} dmg!");
-        CombatSystem.OnEnemyDefeated      += () => AppendLog("✓ Enemy defeated!");
-        CombatSystem.OnAbilityTriggered   += s  => AppendLog($"✨ {s}");
+        CombatSystem.OnEnemyDefeated      += () => AppendLog("Enemy defeated!");
+        CombatSystem.OnAbilityTriggered   += s  => AppendLog(s);
         CombatSystem.OnEnemyHpChanged     += UpdateEnemyHp;
     }
 
@@ -135,9 +157,71 @@ public class UIManager : MonoBehaviour
     }
 
     // -------------------------------------------------------
+    // Fix EventSystem to use new Input System module
+    private void FixEventSystem()
+    {
+        var es = FindFirstObjectByType<EventSystem>();
+        if (es == null)
+        {
+            // Create one if missing
+            var go = new GameObject("EventSystem");
+            go.AddComponent<EventSystem>();
+            go.AddComponent<UnityEngine.InputSystem.UI.InputSystemUIInputModule>();
+            Debug.Log("[UI] Created missing EventSystem");
+            return;
+        }
+
+        // Check if old Standalone module exists and replace it
+        var oldModule = es.GetComponent<StandaloneInputModule>();
+        if (oldModule != null)
+        {
+            Destroy(oldModule);
+            es.gameObject.AddComponent<UnityEngine.InputSystem.UI.InputSystemUIInputModule>();
+            Debug.Log("[UI] Replaced StandaloneInputModule with InputSystemUIInputModule");
+        }
+
+        // Check if new module is already there
+        var newModule = es.GetComponent<UnityEngine.InputSystem.UI.InputSystemUIInputModule>();
+        if (newModule == null)
+        {
+            es.gameObject.AddComponent<UnityEngine.InputSystem.UI.InputSystemUIInputModule>();
+            Debug.Log("[UI] Added InputSystemUIInputModule to existing EventSystem");
+        }
+    }
+
+    // -------------------------------------------------------
+    private void ApplyCombatLogShift()
+    {
+        if (_combatLogShiftApplied) return;
+        if (combatLog == null) return;
+
+        var rt = combatLog.rectTransform;
+        if (rt == null) return;
+
+        // Move combat text downward to avoid top HUD overlap.
+        rt.anchoredPosition -= new Vector2(0f, Mathf.Abs(combatLogDownShift));
+        _combatLogShiftApplied = true;
+    }
+
+    // -------------------------------------------------------
     // Phase routing
     private void HandlePhase(GamePhase phase)
     {
+        // SceneLoader always accurate regardless of GameLoop timing
+        _currentLevel = SceneLoader.GetCurrentLevel();
+        if (_currentLevel <= 0) _currentLevel = 1;
+
+        if (levelLabel) levelLabel.text = $"Level {_currentLevel} / 3";
+
+        // Unlock cursor on menu-like panels; lock it during active gameplay/combat.
+        bool needsCursor = phase == GamePhase.NightPhase ||
+                           phase == GamePhase.LevelComplete ||
+                           phase == GamePhase.DifficultySelect ||
+                           phase == GamePhase.Ending;
+
+        Cursor.lockState = needsCursor ? CursorLockMode.None : CursorLockMode.Locked;
+        Cursor.visible   = needsCursor;
+
         switch (phase)
         {
             case GamePhase.DifficultySelect: ShowOnly(difficultyPanel);                     break;
@@ -148,24 +232,45 @@ public class UIManager : MonoBehaviour
             case GamePhase.LevelComplete:    ShowOnly(levelCompletePanel ?? gameHudPanel);  break;
             case GamePhase.Ending:           ShowOnly(endingPanel);                         break;
         }
+
+        Debug.Log($"[UI] Phase: {phase} | Level: {_currentLevel}");
     }
 
     private void HandleDayStart(int day, string zone)
     {
-        int level = SceneLoader.GetCurrentLevel();
+        // SceneLoader always accurate — never has timing issues
+        _currentLevel = SceneLoader.GetCurrentLevel();
+        if (_currentLevel <= 0) _currentLevel = 1;
+
         if (dayLabel)   dayLabel.text   = $"Day {day} / {GameData.TOTAL_DAYS}";
         if (zoneLabel)  zoneLabel.text  = zone;
-        if (levelLabel) levelLabel.text = $"Level {level} / 3";
+        if (levelLabel) levelLabel.text = $"Level {_currentLevel} / 3";
+
         if (enemyLabel)
             enemyLabel.text = string.IsNullOrEmpty(_currentEnemyName)
                 ? "Enemy" : _currentEnemyName;
-    }
 
+        Debug.Log($"[UI] Day {day} | Zone: {zone} | Level: {_currentLevel}");
+    }
     private void HandleNight(int day)
     {
-        if (nightText) nightText.text =
-            $"Night {day} — Resting at the First-Aid Station.\n" +
-            "Forest's Night Bloom activates. Phoenix's Dodge refreshes.";
+        bool retryNight = GameLoop.Instance != null && GameLoop.Instance.IsDefeatRecoveryNight;
+
+        if (nightText)
+        {
+            if (retryNight)
+            {
+                nightText.text =
+                    $"Night {day} — The team regroups after defeat.\n" +
+                    "Press Continue to retry this day from the start.";
+            }
+            else
+            {
+                nightText.text =
+                    $"Night {day} — Resting at the First-Aid Station.\n" +
+                    "Forest's Night Bloom activates. Phoenix's Dodge refreshes.";
+            }
+        }
     }
 
     private void HandleZoneEnemySet(string enemyName)
@@ -176,12 +281,15 @@ public class UIManager : MonoBehaviour
 
     private void HandleLevelComplete(int level)
     {
+        _currentLevel = level;
+
         string zone  = SceneLoader.GetCurrentZoneName();
         int    alive = TeamManager.Instance?.GetAliveCount() ?? 0;
 
         if (completeTitle) completeTitle.text = "✦ Zone Cleared! ✦";
         if (zoneName)      zoneName.text      = $"{zone} Complete";
         if (aliveCount)    aliveCount.text    = $"Survivors: {alive} / 7";
+        if (levelLabel)    levelLabel.text    = $"Level {level} / 3";
 
         if (nextLevelButton)
         {
@@ -205,6 +313,11 @@ public class UIManager : MonoBehaviour
         _isPaused = true;
         PauseManager.Instance?.Pause();
         pausePanel.SetActive(true);
+
+        // Unlock and show cursor so player can click pause UI.
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible   = true;
+
         Debug.Log("[UI] Game Paused");
     }
 
@@ -220,6 +333,10 @@ public class UIManager : MonoBehaviour
         if (_panelBeforePause != null)
             _panelBeforePause.SetActive(true);
 
+        // Return to camera-control cursor behavior during gameplay.
+        Cursor.lockState = CursorLockMode.Locked;
+        Cursor.visible   = false;
+
         Debug.Log("[UI] Game Resumed");
     }
 
@@ -227,12 +344,22 @@ public class UIManager : MonoBehaviour
     {
         _isPaused = false;
         PauseManager.Instance?.Resume();
+
+        // Ensure menu scene starts with an unlocked, visible cursor.
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible   = true;
+
         SceneManager.LoadScene(0);
     }
 
     public void OnSavePressed()
     {
         SaveData current = SaveSystem.Load();
+
+        current.lastSceneBuildIndex = Mathf.Clamp(SceneManager.GetActiveScene().buildIndex, 1, 3);
+        int currentDifficulty = GameLoop.Instance?.Difficulty ?? current.lastDifficulty;
+        current.lastDifficulty = Mathf.Clamp(currentDifficulty, 1, 7);
+
         SaveSystem.Save(current);
         Debug.Log("[UI] Game Saved!");
 
@@ -248,13 +375,19 @@ public class UIManager : MonoBehaviour
         txt.text = original;
     }
 
-    // -------------------------------------------------------
-    // Night Continue — bridges button to GameLoop
-    // Wire NightContinueButton OnClick → UIManager → OnNightContinuePressed
+    // Night Continue button → bridges to GameLoop
     public void OnNightContinuePressed()
     {
+        // Make sure night-panel button is always clickable.
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible   = true;
+
         GameLoop.Instance?.OnNightContinuePressed();
         Debug.Log("[UI] Night continue pressed");
+
+        // Re-lock after continuing back into gameplay flow.
+        Cursor.lockState = CursorLockMode.Locked;
+        Cursor.visible   = false;
     }
 
     // -------------------------------------------------------
@@ -327,20 +460,70 @@ public class UIManager : MonoBehaviour
     public void ShowDifficultyScreen()
     {
         ShowOnly(difficultyPanel);
-        if (!difficultyContainer || !difficultyButtonPrefab) return;
-
-        foreach (Transform t in difficultyContainer) Destroy(t.gameObject);
         var save = SaveSystem.Load();
 
-        for (int d = save.maxDifficulty; d >= 1; d--)
+        // If no container exists, we cannot present choices: safely continue with the saved/default difficulty.
+        if (!difficultyContainer)
         {
-            int    diff = d;
-            string name = GameData.DIFFICULTIES[d].difficultyName;
-            var obj = Instantiate(difficultyButtonPrefab, difficultyContainer);
-            var btn = obj.GetComponent<Button>();
-            var txt = obj.GetComponentInChildren<TextMeshProUGUI>();
-            if (txt) txt.text = $"{d}. {name}";
-            if (btn) btn.onClick.AddListener(() => GameLoop.Instance?.StartGame(diff));
+            int fallbackDiff = Mathf.Clamp(save.maxDifficulty, 1, 7);
+            Debug.LogWarning($"[UI] Difficulty container missing. Auto-starting difficulty {fallbackDiff}.");
+            GameLoop.Instance?.StartGame(fallbackDiff);
+            return;
+        }
+
+        // Normal path: build dynamic buttons from prefab.
+        if (difficultyButtonPrefab)
+        {
+            foreach (Transform t in difficultyContainer) Destroy(t.gameObject);
+
+            for (int d = save.maxDifficulty; d >= 1; d--)
+            {
+                int    diff = d;
+                string name = GameData.DIFFICULTIES[d].difficultyName;
+                var obj = Instantiate(difficultyButtonPrefab, difficultyContainer);
+                var btn = obj.GetComponent<Button>();
+                var txt = obj.GetComponentInChildren<TextMeshProUGUI>();
+                if (txt) txt.text = $"{d}. {name}";
+                if (btn) btn.onClick.AddListener(() => GameLoop.Instance?.StartGame(diff));
+            }
+
+            return;
+        }
+
+        // Fallback path for scenes where prefab refs were not assigned:
+        // wire any existing child buttons in the container from hardest to easiest.
+        var existingButtons = difficultyContainer.GetComponentsInChildren<Button>(true);
+        if (existingButtons != null && existingButtons.Length > 0)
+        {
+            int d = save.maxDifficulty;
+            foreach (var btn in existingButtons)
+            {
+                if (btn == null) continue;
+                if (d < 1)
+                {
+                    btn.gameObject.SetActive(false);
+                    continue;
+                }
+
+                int diff = d;
+                string name = GameData.DIFFICULTIES[diff].difficultyName;
+                var txt = btn.GetComponentInChildren<TextMeshProUGUI>();
+                if (txt) txt.text = $"{diff}. {name}";
+                btn.onClick.RemoveAllListeners();
+                btn.onClick.AddListener(() => GameLoop.Instance?.StartGame(diff));
+                btn.gameObject.SetActive(true);
+                d--;
+            }
+
+            Debug.LogWarning("[UI] Difficulty prefab missing; using existing difficulty buttons in scene.");
+            return;
+        }
+
+        // Last-resort safeguard: do not block progression.
+        {
+            int fallbackDiff = Mathf.Clamp(save.maxDifficulty, 1, 7);
+            Debug.LogWarning($"[UI] Difficulty prefab and scene buttons missing. Auto-starting difficulty {fallbackDiff}.");
+            GameLoop.Instance?.StartGame(fallbackDiff);
         }
     }
 

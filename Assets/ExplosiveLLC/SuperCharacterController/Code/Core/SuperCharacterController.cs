@@ -65,6 +65,16 @@ public partial class SuperCharacterController:MonoBehaviour
 	public float radiusScale { get; set; }
 	public bool manualUpdateOnly { get; set; }
 
+	/// <summary>
+	/// Configure fixed-step update behavior at runtime so controller feel is consistent across scenes.
+	/// </summary>
+	public void ConfigureFixedTimeStep(bool enabled, int updatesPerSecond = 60)
+	{
+		fixedTimeStep = enabled;
+		fixedUpdatesPerSecond = Mathf.Max(1, updatesPerSecond);
+		fixedDeltaTime = 1.0f / fixedUpdatesPerSecond;
+	}
+
 	public delegate void UpdateDelegate();
 	public event UpdateDelegate AfterSingleUpdate;
 

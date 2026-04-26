@@ -10,7 +10,15 @@ public class EncounterZone : MonoBehaviour
     {
         // Only trigger once and only for the player
         if (hasTriggered) return;
-        if (!other.CompareTag("Player")) return;
+
+        var root = other.attachedRigidbody != null
+            ? other.attachedRigidbody.transform
+            : other.transform.root;
+
+        bool isPlayer = other.CompareTag("Player") ||
+                        (root != null && root.CompareTag("Player"));
+
+        if (!isPlayer) return;
         if (GameLoop.Instance == null) return;
         if (GameLoop.Instance.CurrentPhase != GamePhase.DayExploration) return;
 
