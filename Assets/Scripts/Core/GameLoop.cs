@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using System;
 using System.Collections;
 
@@ -11,6 +12,7 @@ public enum GamePhase
     DayExploration,
     Combat,
     NightPhase,
+    LevelComplete,
     Ending
 }
 
@@ -24,6 +26,8 @@ public class GameLoop : MonoBehaviour
     public static event Action<int>        OnNightStarted;  // (day)
     public static event Action<string>     OnEndingReached; // (endingKey)
     public static event Action<bool>       OnNGPlusChanged; // (isNGPlus)
+    public static event Action<int>        OnLevelComplete; // (level)
+    public static event Action<string>     OnZoneEnemySet;  // (enemy name)
 
     [Header("References")]
     public TeamManager  teamManager;
@@ -35,10 +39,12 @@ public class GameLoop : MonoBehaviour
     public string    CurrentZone     { get; private set; }
     public SaveData  Save            { get; private set; }
     public int       Difficulty      { get; private set; }
+    public int       CurrentLevel    { get; private set; }
     public bool      IsNGPlus        => Save?.ngPlus ?? false;
 
-    private bool _zoneSelected;
     private bool _combatDone;
+    private bool _runInitialized;
+    private Coroutine _zoneRoutine;
 
     // -------------------------------------------------------
     void Awake()
@@ -46,6 +52,13 @@ public class GameLoop : MonoBehaviour
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
         DontDestroyOnLoad(gameObject);
+        SceneManager.sceneLoaded += OnSceneLoaded;
+    }
+
+    void OnDestroy()
+    {
+        if (Instance == this)
+            SceneManager.sceneLoaded -= OnSceneLoaded;
     }
 
     void Start()
@@ -55,45 +68,58 @@ public class GameLoop : MonoBehaviour
         if (Save.ngPlus)
             OnNGPlusChanged?.Invoke(true);
 
-        SetPhase(GamePhase.MainMenu);
+        RefreshSceneState();
+        HandleSceneEntry(SceneManager.GetActiveScene().buildIndex);
     }
 
-    // Called by UI when player presses New Game / Continue
+    // Called by UI difficulty button.
     public void StartGame(int selectedDifficulty)
     {
         Difficulty = selectedDifficulty;
-        teamManager.SetupTeam(Difficulty);
+        RefreshSceneReferences();
+        teamManager?.SetupTeam(Difficulty);
+        _runInitialized = true;
         CurrentDay = 0;
-        StartCoroutine(GameRoutine());
+        StartZoneRoutine();
     }
 
     // -------------------------------------------------------
-    private IEnumerator GameRoutine()
+    private void StartZoneRoutine()
+    {
+        if (_zoneRoutine != null)
+            StopCoroutine(_zoneRoutine);
+
+        _zoneRoutine = StartCoroutine(ZoneRoutine());
+    }
+
+    private IEnumerator ZoneRoutine()
     {
         for (int day = 1; day <= GameData.TOTAL_DAYS; day++)
         {
             CurrentDay = day;
 
-            // --- Zone Selection ---
-            _zoneSelected = false;
-            SetPhase(GamePhase.ZoneSelect);
-            yield return new WaitUntil(() => _zoneSelected);
-
             // --- Day Exploration ---
             SetPhase(GamePhase.DayExploration);
             OnDayStarted?.Invoke(day, CurrentZone);
+
+            if (GameData.ZONE_ENEMIES.TryGetValue(CurrentZone, out string enemyName))
+                OnZoneEnemySet?.Invoke(enemyName);
+
             yield return new WaitForSeconds(1.5f);
 
             // --- Combat (probability check) ---
             bool doCombat = IsNGPlus
-                ? (CurrentZone == GameData.NG_PLUS_ZONE || UnityEngine.Random.value < 0.8f)
+                ? (UnityEngine.Random.value < 0.8f)
                 : (UnityEngine.Random.value < 0.6f);
 
-            if (doCombat && teamManager.IsTeamAlive())
+            if (doCombat && teamManager != null && teamManager.IsTeamAlive())
             {
                 _combatDone = false;
                 SetPhase(GamePhase.Combat);
-                combatSystem.StartCombat(teamManager.Team, IsNGPlus, () => _combatDone = true);
+                if (combatSystem == null)
+                    combatSystem = FindFirstObjectByType<CombatSystem>();
+
+                combatSystem?.StartCombat(teamManager.Team, IsNGPlus, () => _combatDone = true);
                 yield return new WaitUntil(() => _combatDone);
             }
 
@@ -107,21 +133,33 @@ public class GameLoop : MonoBehaviour
             SaveSystem.Save(Save);
 
             yield return new WaitForSeconds(2f);
-            CurrentZone = null;
         }
 
-        // --- Ending ---
-        SetPhase(GamePhase.Ending);
-        TriggerEnding();
+        SetPhase(GamePhase.LevelComplete);
+        OnLevelComplete?.Invoke(CurrentLevel);
+
+        yield return new WaitForSeconds(1f);
+
+        if (CurrentLevel >= 3)
+            TriggerEnding();
     }
 
-    // Called by UI zone buttons
+    public void ProceedToNextZone()
+    {
+        if (CurrentPhase != GamePhase.LevelComplete)
+            return;
+
+        if (SceneLoader.Instance != null)
+            SceneLoader.Instance.LoadNextZone();
+        else
+            SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex + 1);
+    }
+
+    // Compatibility shim for legacy UI zone buttons.
     public void SelectZone(string zoneName)
     {
-        if (CurrentPhase != GamePhase.ZoneSelect) return;
-        CurrentZone   = zoneName;
-        _zoneSelected = true;
-        Debug.Log($"[GameLoop] Zone selected: {zoneName}");
+        CurrentZone = zoneName;
+        Debug.Log($"[GameLoop] SelectZone called in scene-flow mode. Zone set to: {zoneName}");
     }
 
     // --- Ending Logic ---
@@ -139,7 +177,14 @@ public class GameLoop : MonoBehaviour
 
         Save.highestDifficultyClear = Mathf.Max(Save.highestDifficultyClear, Difficulty);
         SaveSystem.Save(Save);
+
+        SetPhase(GamePhase.Ending);
         OnEndingReached?.Invoke(key);
+
+        if (SceneLoader.Instance != null)
+            SceneLoader.Instance.LoadEnding();
+        else
+            SceneManager.LoadScene("Ending Menu");
     }
 
     private string DetermineEnding()
@@ -156,6 +201,68 @@ public class GameLoop : MonoBehaviour
     {
         CurrentPhase = phase;
         OnPhaseChanged?.Invoke(phase);
-        Debug.Log($"[GameLoop] ▶ Phase: {phase}");
+        Debug.Log($"[GameLoop] Phase: {phase} | Day: {CurrentDay} | Zone: {CurrentZone}");
+    }
+
+    private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+    {
+        RefreshSceneState();
+        HandleSceneEntry(scene.buildIndex);
+    }
+
+    private void HandleSceneEntry(int buildIndex)
+    {
+        if (buildIndex == SceneLoader.SCENE_MAIN_MENU)
+        {
+            _runInitialized = false;
+            Difficulty = 0;
+            CurrentDay = 0;
+            CurrentZone = null;
+            SetPhase(GamePhase.MainMenu);
+            return;
+        }
+
+        if (buildIndex == SceneLoader.SCENE_ENDING)
+        {
+            SetPhase(GamePhase.Ending);
+            return;
+        }
+
+        if (CurrentLevel <= 0)
+            return;
+
+        RefreshSceneReferences();
+
+        // First zone asks for difficulty via existing UI.
+        if (!_runInitialized)
+        {
+            if (CurrentLevel == 1)
+            {
+                SetPhase(GamePhase.DifficultySelect);
+                return;
+            }
+
+            Difficulty = Mathf.Clamp(Save.maxDifficulty, 1, 7);
+            teamManager?.SetupTeam(Difficulty);
+            _runInitialized = true;
+        }
+
+        CurrentDay = 0;
+        StartZoneRoutine();
+    }
+
+    private void RefreshSceneState()
+    {
+        CurrentLevel = SceneLoader.GetCurrentLevel();
+        CurrentZone = SceneLoader.GetCurrentZoneName();
+    }
+
+    private void RefreshSceneReferences()
+    {
+        if (teamManager == null)
+            teamManager = FindFirstObjectByType<TeamManager>();
+
+        if (combatSystem == null)
+            combatSystem = FindFirstObjectByType<CombatSystem>();
     }
 }

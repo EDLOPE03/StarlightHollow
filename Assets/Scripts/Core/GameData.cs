@@ -80,11 +80,29 @@ public static class GameData
 
     public static readonly List<string> ZONES = new List<string>
     {
-        "Whimsy Woods",
-        "Giggle Gardens",
-        "Dream Coaster",
-        "Splash Zone",
-        "Prize Vault"
+        "Emberleaf Grove",
+        "Duskfall",
+        "Starlight Vault"
+    };
+
+    // Enemy names per zone
+    public static readonly Dictionary<string, string> ZONE_ENEMIES =
+        new Dictionary<string, string>()
+    {
+        { "Emberleaf Grove", "Corrupted Grove Bear"    },
+        { "Duskfall",        "The Dusk Wraith"         },
+        { "Starlight Vault", "The Vault Guardian"      },
+        { "Hidden Core",     "The Grand Corruption"    }
+    };
+
+    // Zone descriptions shown on zone select / level splash UI
+    public static readonly Dictionary<string, string> ZONE_DESCRIPTIONS =
+        new Dictionary<string, string>()
+    {
+        { "Emberleaf Grove", "A glowing forest where something stirs..."    },
+        { "Duskfall",        "A carnival frozen in twilight. Be careful."   },
+        { "Starlight Vault", "The final chamber. The Spark awaits."         },
+        { "Hidden Core",     "NG+: The corruption's heart. No mercy here."  }
     };
 
     // Game constants — change values here and they update everywhere

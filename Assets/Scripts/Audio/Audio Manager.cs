@@ -58,6 +58,7 @@ public class AudioManager : MonoBehaviour
             case GamePhase.DayExploration:   PlayMusic(exploreMusic); break;
             case GamePhase.Combat:           PlayMusic(combatMusic);  break;
             case GamePhase.NightPhase:       PlayMusic(nightMusic);   break;
+            case GamePhase.LevelComplete:    PlayMusic(exploreMusic); break;
             case GamePhase.Ending:           PlayMusic(endingMusic);  break;
         }
     }
