@@ -128,7 +128,8 @@ public class UIManager : MonoBehaviour
     void Update()
     {
         // Allow Escape key to toggle pause during gameplay
-        if (Input.GetKeyDown(KeyCode.Escape))
+        if (UnityEngine.InputSystem.Keyboard.current != null &&
+            UnityEngine.InputSystem.Keyboard.current.escapeKey.wasPressedThisFrame)
         {
             if (_isPaused) OnResumePressed();
             else           OnPausePressed();
