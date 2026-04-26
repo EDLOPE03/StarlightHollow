@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine.SceneManagement;
 using UnityEngine.Serialization;
+using UnityEngine.InputSystem;
 
 public class UIManager : MonoBehaviour
 {
@@ -12,7 +13,7 @@ public class UIManager : MonoBehaviour
 
     [Header("─── Panels ───")]
     [FormerlySerializedAs("mainMenuPanel")]
-    [SerializeField] private GameObject pausePanel;        // replaces mainMenuPanel
+    [SerializeField] private GameObject pausePanel;
     [SerializeField] private GameObject difficultyPanel;
     [SerializeField] private GameObject zonePanel;
     [SerializeField] private GameObject gameHudPanel;
@@ -34,7 +35,7 @@ public class UIManager : MonoBehaviour
     [SerializeField] private TextMeshProUGUI levelLabel;
     [SerializeField] private Transform       teamContainer;
     [SerializeField] private GameObject      charCardPrefab;
-    [SerializeField] private Button          pauseButton;   // the ⚙ button in HUD
+    [SerializeField] private Button          pauseButton;
 
     [Header("─── Combat ───")]
     [SerializeField] private TextMeshProUGUI combatLog;
@@ -62,10 +63,13 @@ public class UIManager : MonoBehaviour
     [SerializeField] private TextMeshProUGUI aliveCount;
     [SerializeField] private Button          nextLevelButton;
 
-    // Track what panel was showing before pause so we can return to it
+    // Track what panel was showing before pause
     private GameObject _panelBeforePause;
     private bool       _isPaused = false;
     private string     _currentEnemyName = "";
+
+    // Cached reference to player input controller
+    private RPGCharacterAnims.RPGCharacterInputController _playerInput;
 
     // HP slider refs keyed by character name
     private Dictionary<string, Slider>          _hpSliders = new();
@@ -76,6 +80,20 @@ public class UIManager : MonoBehaviour
     {
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
+    }
+
+    void Start()
+    {
+        // Cache the player input controller once at start
+        _playerInput = FindFirstObjectByType<RPGCharacterAnims.RPGCharacterInputController>();
+
+        HideAllPanels();
+
+        int level = SceneLoader.GetCurrentLevel();
+        if (level == 1)
+            ShowDifficultyScreen();
+        else
+            ShowOnly(gameHudPanel);
     }
 
     void OnEnable()
@@ -112,24 +130,11 @@ public class UIManager : MonoBehaviour
         CombatSystem.OnEnemyHpChanged -= UpdateEnemyHp;
     }
 
-    void Start()
-    {
-        // Game scene starts with the difficulty picker
-        // (Main Menu is its own scene now)
-        HideAllPanels();
-
-        int level = SceneLoader.GetCurrentLevel();
-        if (level == 1)
-            ShowDifficultyScreen();
-        else
-            ShowOnly(gameHudPanel);
-    }
-
     void Update()
     {
-        // Allow Escape key to toggle pause during gameplay
-        if (UnityEngine.InputSystem.Keyboard.current != null &&
-            UnityEngine.InputSystem.Keyboard.current.escapeKey.wasPressedThisFrame)
+        // Escape key toggles pause using new Input System
+        if (Keyboard.current != null &&
+            Keyboard.current.escapeKey.wasPressedThisFrame)
         {
             if (_isPaused) OnResumePressed();
             else           OnPausePressed();
@@ -142,26 +147,25 @@ public class UIManager : MonoBehaviour
     {
         switch (phase)
         {
-            case GamePhase.DifficultySelect: ShowOnly(difficultyPanel);               break;
-            case GamePhase.ZoneSelect:     BuildZoneButtons(); ShowOnly(zonePanel);    break;
-            case GamePhase.DayExploration: ShowOnly(gameHudPanel);                     break;
-            case GamePhase.Combat:         ShowOnly(combatPanel); combatLog?.SetText(""); break;
-            case GamePhase.NightPhase:     ShowOnly(nightPanel);                       break;
-            case GamePhase.LevelComplete:  ShowOnly(levelCompletePanel != null ? levelCompletePanel : gameHudPanel); break;
-            case GamePhase.Ending:         ShowOnly(endingPanel);                      break;
+            case GamePhase.DifficultySelect: ShowOnly(difficultyPanel);                          break;
+            case GamePhase.ZoneSelect:       BuildZoneButtons(); ShowOnly(zonePanel);            break;
+            case GamePhase.DayExploration:   ShowOnly(gameHudPanel);                             break;
+            case GamePhase.Combat:           ShowOnly(combatPanel); combatLog?.SetText("");      break;
+            case GamePhase.NightPhase:       ShowOnly(nightPanel);                               break;
+            case GamePhase.LevelComplete:    ShowOnly(levelCompletePanel ?? gameHudPanel);       break;
+            case GamePhase.Ending:           ShowOnly(endingPanel);                              break;
         }
     }
 
     private void HandleDayStart(int day, string zone)
     {
         int level = SceneLoader.GetCurrentLevel();
-
-        if (dayLabel)  dayLabel.text  = $"Day {day} / {GameData.TOTAL_DAYS}";
-        if (zoneLabel) zoneLabel.text = zone;
+        if (dayLabel)   dayLabel.text   = $"Day {day} / {GameData.TOTAL_DAYS}";
+        if (zoneLabel)  zoneLabel.text  = zone;
         if (levelLabel) levelLabel.text = $"Level {level} / 3";
-
         if (enemyLabel)
-            enemyLabel.text = string.IsNullOrEmpty(_currentEnemyName) ? "Enemy" : _currentEnemyName;
+            enemyLabel.text = string.IsNullOrEmpty(_currentEnemyName)
+                ? "Enemy" : _currentEnemyName;
     }
 
     private void HandleNight(int day)
@@ -179,19 +183,18 @@ public class UIManager : MonoBehaviour
 
     private void HandleLevelComplete(int level)
     {
-        string zone = SceneLoader.GetCurrentZoneName();
-        int alive = TeamManager.Instance?.GetAliveCount() ?? 0;
+        string zone  = SceneLoader.GetCurrentZoneName();
+        int    alive = TeamManager.Instance?.GetAliveCount() ?? 0;
 
         if (completeTitle) completeTitle.text = "✦ Zone Cleared! ✦";
-        if (zoneName) zoneName.text = $"{zone} Complete";
-        if (aliveCount) aliveCount.text = $"Survivors: {alive} / 7";
+        if (zoneName)      zoneName.text      = $"{zone} Complete";
+        if (aliveCount)    aliveCount.text    = $"Survivors: {alive} / 7";
 
         if (nextLevelButton)
         {
             var txt = nextLevelButton.GetComponentInChildren<TextMeshProUGUI>();
             bool isLastZone = level >= 3;
             if (txt) txt.text = isLastZone ? "See Ending ->" : "Enter Next Zone ->";
-
             nextLevelButton.onClick.RemoveAllListeners();
             nextLevelButton.onClick.AddListener(() =>
                 GameLoop.Instance?.ProceedToNextZone());
@@ -205,13 +208,13 @@ public class UIManager : MonoBehaviour
         if (_isPaused) return;
         if (pausePanel == null) return;
 
-        // Remember which panel was active before pausing
         _panelBeforePause = GetActivePanel();
-
         _isPaused = true;
-        Time.timeScale = 0f;
-        pausePanel.SetActive(true);
 
+        // Use PauseManager to stop everything
+        PauseManager.Instance?.Pause();
+
+        pausePanel.SetActive(true);
         Debug.Log("[UI] Game Paused");
     }
 
@@ -221,24 +224,30 @@ public class UIManager : MonoBehaviour
         if (pausePanel == null) return;
 
         _isPaused = false;
-        Time.timeScale = 1f;
+
+        // Use PauseManager to restore everything
+        PauseManager.Instance?.Resume();
+
         pausePanel.SetActive(false);
 
-        // Return to whatever panel was showing before pause
         if (_panelBeforePause != null)
             _panelBeforePause.SetActive(true);
 
         Debug.Log("[UI] Game Resumed");
     }
 
+    public void OnReturnToMenuPressed()
+    {
+        _isPaused = false;
+        PauseManager.Instance?.Resume();
+        SceneManager.LoadScene(0);
+    }
     public void OnSavePressed()
     {
-        // Load current save data and re-save it to write latest state
         SaveData current = SaveSystem.Load();
         SaveSystem.Save(current);
         Debug.Log("[UI] Game Saved!");
 
-        // Flash the save button text to confirm
         var txt = saveButton?.GetComponentInChildren<TextMeshProUGUI>();
         if (txt) StartCoroutine(FlashSaveConfirm(txt));
     }
@@ -247,15 +256,8 @@ public class UIManager : MonoBehaviour
     {
         string original = txt.text;
         txt.text = "SAVED ✓";
-        yield return new WaitForSecondsRealtime(1.5f); // realtime so pause doesn't block it
+        yield return new WaitForSecondsRealtime(1.5f);
         txt.text = original;
-    }
-
-    public void OnReturnToMenuPressed()
-    {
-        _isPaused = false;
-        Time.timeScale = 1f;
-        SceneManager.LoadScene(0); // 0 = Main Menu scene
     }
 
     // -------------------------------------------------------
@@ -383,36 +385,32 @@ public class UIManager : MonoBehaviour
     private void HideAllPanels()
     {
         foreach (var p in new[] { pausePanel, difficultyPanel, zonePanel,
-                                  gameHudPanel, combatPanel, nightPanel, endingPanel, levelCompletePanel })
+                                  gameHudPanel, combatPanel, nightPanel,
+                                  endingPanel, levelCompletePanel })
             if (p != null) p.SetActive(false);
     }
 
     private void ShowOnly(GameObject target)
     {
-        // Don't touch the pause panel when routing between game panels
         foreach (var p in new[] { difficultyPanel, zonePanel,
-                                  gameHudPanel, combatPanel, nightPanel, endingPanel, levelCompletePanel })
+                                  gameHudPanel, combatPanel, nightPanel,
+                                  endingPanel, levelCompletePanel })
             if (p != null) p.SetActive(p == target);
     }
 
-    // Returns whichever non-pause panel is currently active
     private GameObject GetActivePanel()
     {
         foreach (var p in new[] { difficultyPanel, zonePanel,
-                                  gameHudPanel, combatPanel, nightPanel, endingPanel, levelCompletePanel })
+                                  gameHudPanel, combatPanel, nightPanel,
+                                  endingPanel, levelCompletePanel })
             if (p != null && p.activeSelf) return p;
         return null;
     }
 
     // ── Button callbacks wired in Inspector ──
-    public void OnNewGamePressed() => ShowDifficultyScreen();
-    public void OnContinuePressed() => ShowDifficultyScreen();
-    public void OnDeleteSavePressed()
-    {
-        SaveSystem.DeleteSave();
-        ShowDifficultyScreen();
-    }
-
-    public void OnPlayAgainPressed() =>
+    public void OnNewGamePressed()    => ShowDifficultyScreen();
+    public void OnContinuePressed()   => ShowDifficultyScreen();
+    public void OnDeleteSavePressed() { SaveSystem.DeleteSave(); ShowDifficultyScreen(); }
+    public void OnPlayAgainPressed()  =>
         SceneManager.LoadScene(SceneManager.GetActiveScene().name);
 }
