@@ -97,18 +97,19 @@ public class EndingUI : MonoBehaviour
         {
             string line = ch.name switch
             {
-                "Forest"  => "\"If the spark lives... so do we.\"",
+                "Forest"  => "\"The spark lives.\"",
                 "Monty"   => "\"Not bad for a day's work.\"",
-                "Phoenix" => "\"Statistically improbable. But here we are.\"",
+                "Phoenix" => "\"Improbable. But here we are.\"",
                 "Astra"   => "\"I can still see the light.\"",
                 "Coral"   => "\"Pain means alive. I'll take it.\"",
-                "Jade"    => "\"We'll make it through. We always do.\"",
-                "Winter"  => "\"Systems offline. Heart still running.\"",
+                "Jade"    => "\"We always make it through.\"",
+                "Winter"  => "\"Heart still running.\"",
                 _         => ""
             };
-            lines += $"{ch.name}: {line}\n\n";
+            if (line.Length > 0)
+                lines += $"{ch.name}: {line}\n";
         }
-        characterLines.text = lines;
+        characterLines.text = lines.TrimEnd();
     }
 
     public void OnPlayAgainPressed() => SceneManager.LoadScene(0);
