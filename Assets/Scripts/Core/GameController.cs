@@ -6,14 +6,14 @@ public class CameraController : MonoBehaviour
     [Header("Settings")]
     public Transform playerBody;
     [SerializeField] private Transform cameraTarget;
-    public float     mouseSensitivity = 2f;
+    public float     mouseSensitivity = 1f;
     public float     verticalClamp    = 60f;
-    [SerializeField] private float lookSmoothing = 18f;
-    [SerializeField] private float lookDeadzone = 0.01f;
+    [SerializeField] private float lookSmoothing = 20f;
+    [SerializeField] private float lookDeadzone = 0.03f;
 
     private float _xRotation = 0f;
+    private float _yRotation = 0f;
     private Vector2 _rawLook;
-    private Vector2 _smoothedLook;
 
     void Start()
     {
@@ -24,11 +24,17 @@ public class CameraController : MonoBehaviour
             if (t != null) cameraTarget = t;
         }
 
-        // Keep current pitch so we don't snap on scene load.
+        // Keep current rotation so we don't snap on scene load.
         if (cameraTarget != null)
+        {
             _xRotation = NormalizeAngle(cameraTarget.localEulerAngles.x);
+            _yRotation = NormalizeAngle(cameraTarget.localEulerAngles.y);
+        }
         else
+        {
             _xRotation = NormalizeAngle(transform.localEulerAngles.x);
+            _yRotation = NormalizeAngle(transform.localEulerAngles.y);
+        }
 
         _xRotation = Mathf.Clamp(_xRotation, -verticalClamp, verticalClamp);
     }
@@ -65,38 +71,44 @@ public class CameraController : MonoBehaviour
         // Apply camera after movement updates to reduce jitter.
         if (PauseManager.Instance != null && PauseManager.Instance.IsPaused)
         {
-            _smoothedLook = Vector2.zero;
             return;
         }
 
         if (Cursor.lockState != CursorLockMode.Locked)
         {
-            _smoothedLook = Vector2.zero;
             return;
         }
 
-        float lerpT = 1f - Mathf.Exp(-Mathf.Max(0.01f, lookSmoothing) * Time.unscaledDeltaTime);
-        _smoothedLook = Vector2.Lerp(_smoothedLook, _rawLook, lerpT);
+        Vector2 look = _rawLook;
+        if (look.sqrMagnitude < lookDeadzone * lookDeadzone)
+            look = Vector2.zero;
 
-        if (_smoothedLook.sqrMagnitude < lookDeadzone * lookDeadzone)
-            _smoothedLook = Vector2.zero;
+        float mouseX = look.x;
+        float mouseY = look.y;
 
-        float mouseX = _smoothedLook.x;
-        float mouseY = _smoothedLook.y;
+        float targetXRotation = Mathf.Clamp(_xRotation - mouseY, -verticalClamp, verticalClamp);
+        float targetYRotation = _yRotation + mouseX;
 
-        // Vertical look — clamp so camera doesn't flip
-        _xRotation -= mouseY;
-        _xRotation  = Mathf.Clamp(_xRotation, -verticalClamp, verticalClamp);
-
-        // If using Cinemachine, rotate the tracking target for pitch and the player body for yaw.
-        if (cameraTarget != null)
-            cameraTarget.localRotation = Quaternion.Euler(_xRotation, 0f, 0f);
+        if (lookSmoothing > 0f)
+        {
+            _xRotation = Mathf.LerpAngle(_xRotation, targetXRotation, Time.deltaTime * lookSmoothing);
+            _yRotation = Mathf.LerpAngle(_yRotation, targetYRotation, Time.deltaTime * lookSmoothing);
+        }
         else
-            transform.localRotation = Quaternion.Euler(_xRotation, 0f, 0f);
+        {
+            _xRotation = targetXRotation;
+            _yRotation = targetYRotation;
+        }
 
-        // Rotate player body horizontally
-        if (playerBody != null)
-            playerBody.Rotate(Vector3.up * mouseX);
+        // Rotate the camera target only; movement stays on the character controller.
+        if (cameraTarget != null)
+        {
+            cameraTarget.localRotation = Quaternion.Euler(_xRotation, _yRotation, 0f);
+        }
+        else
+        {
+            transform.localRotation = Quaternion.Euler(_xRotation, _yRotation, 0f);
+        }
     }
 
     private static float NormalizeAngle(float angle)

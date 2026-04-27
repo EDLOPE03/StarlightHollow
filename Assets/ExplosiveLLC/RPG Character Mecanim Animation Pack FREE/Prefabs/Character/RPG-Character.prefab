@@ -110,9 +110,9 @@ MonoBehaviour:
   knockbackMultiplier: 0
   movementAnimationMultiplier: 1
   currentVelocity: {x: 0, y: 0, z: 0}
-  walkSpeed: 0.5
+  walkSpeed: 0.85
   walkAccel: 15
-  runSpeed: 1
+  runSpeed: 1.8
   runAccel: 30
   groundFriction: 120
   rotationSpeed: 100
@@ -235,7 +235,7 @@ MonoBehaviour:
   navMeshAgent: {fileID: 0}
   debugNavigation: 1
   isNavigating: 0
-  moveSpeed: 1
+  moveSpeed: 1.15
   rotationSpeed: 1
   maxNavPathLength: 40
 --- !u!195 &3668655356348723783

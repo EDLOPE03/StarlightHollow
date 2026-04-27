@@ -17,7 +17,7 @@ RenderSettings:
   m_Fog: 1
   m_FogColor: {r: 0.4264151, g: 0.3660733, b: 0.3660733, a: 1}
   m_FogMode: 3
-  m_FogDensity: 0.025
+  m_FogDensity: 0.02
   m_LinearFogStart: 0
   m_LinearFogEnd: 300
   m_AmbientSkyColor: {r: 0.212, g: 0.227, b: 0.259, a: 1}
@@ -3279,37 +3279,6 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &1223743638
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1223743639}
-  m_Layer: 0
-  m_Name: PlayerSpawnPoint
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &1223743639
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1223743638}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: -10}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1234862913
 GameObject:
   m_ObjectHideFlags: 0
@@ -5180,10 +5149,10 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::CameraController
   playerBody: {fileID: 478036558}
   cameraTarget: {fileID: 0}
-  mouseSensitivity: 0.5
+  mouseSensitivity: 1
   verticalClamp: 60
-  lookSmoothing: 18
-  lookDeadzone: 0.01
+  lookSmoothing: 20
+  lookDeadzone: 0.03
 --- !u!1 &1661077833
 GameObject:
   m_ObjectHideFlags: 0
@@ -7239,7 +7208,6 @@ SceneRoots:
   - {fileID: 684906977}
   - {fileID: 1151072246}
   - {fileID: 399655859}
-  - {fileID: 1223743639}
   - {fileID: 1732061207}
   - {fileID: 718561889}
   - {fileID: 1703236667}

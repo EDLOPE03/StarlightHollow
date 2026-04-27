@@ -71,7 +71,7 @@ public class UIManager : MonoBehaviour
     private string     _currentEnemyName = "";
 
     // Cache current level so it is always accurate
-    private int _currentLevel = 1;
+    private int  _currentLevel = 1;
     private bool _combatLogShiftApplied;
 
     // HP slider refs keyed by character name
@@ -87,18 +87,14 @@ public class UIManager : MonoBehaviour
 
     void Start()
     {
-                Debug.Log($"[UI START] Scene name: {SceneManager.GetActiveScene().name} " +
-                    $"Build index: {SceneManager.GetActiveScene().buildIndex} " +
-                    $"Level: {SceneLoader.GetCurrentLevel()}");
+        Debug.Log($"[UI START] Scene name: {SceneManager.GetActiveScene().name} " +
+            $"Build index: {SceneManager.GetActiveScene().buildIndex} " +
+            $"Level: {SceneLoader.GetCurrentLevel()}");
 
         FixEventSystem();
 
-        // SceneLoader always accurate — reads direct from active scene index
         _currentLevel = SceneLoader.GetCurrentLevel();
         if (_currentLevel <= 0) _currentLevel = 1;
-
-        Debug.Log($"[UI] Scene started — Level: {_currentLevel} " +
-                $"Scene: {SceneManager.GetActiveScene().name}");
 
         if (levelLabel) levelLabel.text = $"Level {_currentLevel} / 3";
 
@@ -106,10 +102,14 @@ public class UIManager : MonoBehaviour
 
         HideAllPanels();
 
-        if (_currentLevel == 1)
-            ShowDifficultyScreen();
-        else
-            ShowOnly(gameHudPanel);
+        // Always show HUD immediately — GameLoop fires phases to switch panels
+        ShowOnly(gameHudPanel);
+
+        // Start with cursor unlocked — phases manage it from here
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible   = true;
+
+        Debug.Log($"[UI] Started — Level {_currentLevel} — showing HUD");
     }
 
     void OnEnable()
@@ -126,8 +126,8 @@ public class UIManager : MonoBehaviour
         TeamManager.OnCharacterRevived += ch => AppendLog($"+ {ch.name} revived!");
 
         CombatSystem.OnCombatStart        += () => { combatLog?.SetText(""); _maxEnemyHp = 0; };
-        CombatSystem.OnCharacterAttack    += (n, d) => AppendLog($"{n} deals {d} dmg →");
-        CombatSystem.OnCharacterTakeDamage+= (n, d) => AppendLog($"← {n} takes {d} dmg!");
+        CombatSystem.OnCharacterAttack    += (n, d) => AppendLog($"{n} deals {d} dmg");
+        CombatSystem.OnCharacterTakeDamage+= (n, d) => AppendLog($"{n} takes {d} dmg!");
         CombatSystem.OnEnemyDefeated      += () => AppendLog("Enemy defeated!");
         CombatSystem.OnAbilityTriggered   += s  => AppendLog(s);
         CombatSystem.OnEnemyHpChanged     += UpdateEnemyHp;
@@ -163,7 +163,6 @@ public class UIManager : MonoBehaviour
         var es = FindFirstObjectByType<EventSystem>();
         if (es == null)
         {
-            // Create one if missing
             var go = new GameObject("EventSystem");
             go.AddComponent<EventSystem>();
             go.AddComponent<UnityEngine.InputSystem.UI.InputSystemUIInputModule>();
@@ -171,7 +170,6 @@ public class UIManager : MonoBehaviour
             return;
         }
 
-        // Check if old Standalone module exists and replace it
         var oldModule = es.GetComponent<StandaloneInputModule>();
         if (oldModule != null)
         {
@@ -180,7 +178,6 @@ public class UIManager : MonoBehaviour
             Debug.Log("[UI] Replaced StandaloneInputModule with InputSystemUIInputModule");
         }
 
-        // Check if new module is already there
         var newModule = es.GetComponent<UnityEngine.InputSystem.UI.InputSystemUIInputModule>();
         if (newModule == null)
         {
@@ -194,43 +191,77 @@ public class UIManager : MonoBehaviour
     {
         if (_combatLogShiftApplied) return;
         if (combatLog == null) return;
-
         var rt = combatLog.rectTransform;
         if (rt == null) return;
-
-        // Move combat text downward to avoid top HUD overlap.
         rt.anchoredPosition -= new Vector2(0f, Mathf.Abs(combatLogDownShift));
         _combatLogShiftApplied = true;
+    }
+
+    // -------------------------------------------------------
+    // Called by GameLoop to check if difficulty UI is properly set up
+    public bool HasDifficultyUI()
+    {
+        if (difficultyPanel == null) return false;
+        if (difficultyContainer == null && difficultyButtonPrefab == null) return false;
+        return true;
     }
 
     // -------------------------------------------------------
     // Phase routing
     private void HandlePhase(GamePhase phase)
     {
-        // SceneLoader always accurate regardless of GameLoop timing
         _currentLevel = SceneLoader.GetCurrentLevel();
         if (_currentLevel <= 0) _currentLevel = 1;
-
         if (levelLabel) levelLabel.text = $"Level {_currentLevel} / 3";
-
-        // Unlock cursor on menu-like panels; lock it during active gameplay/combat.
-        bool needsCursor = phase == GamePhase.NightPhase ||
-                           phase == GamePhase.LevelComplete ||
-                           phase == GamePhase.DifficultySelect ||
-                           phase == GamePhase.Ending;
-
-        Cursor.lockState = needsCursor ? CursorLockMode.None : CursorLockMode.Locked;
-        Cursor.visible   = needsCursor;
 
         switch (phase)
         {
-            case GamePhase.DifficultySelect: ShowOnly(difficultyPanel);                     break;
-            case GamePhase.ZoneSelect:       BuildZoneButtons(); ShowOnly(zonePanel);       break;
-            case GamePhase.DayExploration:   ShowOnly(gameHudPanel);                        break;
-            case GamePhase.Combat:           ShowOnly(combatPanel); combatLog?.SetText(""); break;
-            case GamePhase.NightPhase:       ShowOnly(nightPanel);                          break;
-            case GamePhase.LevelComplete:    ShowOnly(levelCompletePanel ?? gameHudPanel);  break;
-            case GamePhase.Ending:           ShowOnly(endingPanel);                         break;
+            case GamePhase.DifficultySelect:
+                ShowOnly(difficultyPanel);
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible   = true;
+                break;
+
+            case GamePhase.ZoneSelect:
+                BuildZoneButtons();
+                ShowOnly(zonePanel);
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible   = true;
+                break;
+
+            case GamePhase.DayExploration:
+                ShowOnly(gameHudPanel);
+                // Lock cursor for 3D movement during exploration
+                Cursor.lockState = CursorLockMode.Locked;
+                Cursor.visible   = false;
+                break;
+
+            case GamePhase.Combat:
+                ShowOnly(combatPanel);
+                combatLog?.SetText("");
+                // Keep cursor locked during combat
+                Cursor.lockState = CursorLockMode.Locked;
+                Cursor.visible   = false;
+                break;
+
+            case GamePhase.NightPhase:
+                ShowOnly(nightPanel);
+                // Unlock so player can click Continue to Morning
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible   = true;
+                break;
+
+            case GamePhase.LevelComplete:
+                ShowOnly(levelCompletePanel ?? gameHudPanel);
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible   = true;
+                break;
+
+            case GamePhase.Ending:
+                ShowOnly(endingPanel);
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible   = true;
+                break;
         }
 
         Debug.Log($"[UI] Phase: {phase} | Level: {_currentLevel}");
@@ -238,7 +269,6 @@ public class UIManager : MonoBehaviour
 
     private void HandleDayStart(int day, string zone)
     {
-        // SceneLoader always accurate — never has timing issues
         _currentLevel = SceneLoader.GetCurrentLevel();
         if (_currentLevel <= 0) _currentLevel = 1;
 
@@ -252,24 +282,18 @@ public class UIManager : MonoBehaviour
 
         Debug.Log($"[UI] Day {day} | Zone: {zone} | Level: {_currentLevel}");
     }
+
     private void HandleNight(int day)
     {
         bool retryNight = GameLoop.Instance != null && GameLoop.Instance.IsDefeatRecoveryNight;
 
         if (nightText)
         {
-            if (retryNight)
-            {
-                nightText.text =
-                    $"Night {day} — The team regroups after defeat.\n" +
-                    "Press Continue to retry this day from the start.";
-            }
-            else
-            {
-                nightText.text =
-                    $"Night {day} — Resting at the First-Aid Station.\n" +
-                    "Forest's Night Bloom activates. Phoenix's Dodge refreshes.";
-            }
+            nightText.text = retryNight
+                ? $"Night {day} — The team regroups after defeat.\n" +
+                  "Press Continue to retry this day from the start."
+                : $"Night {day} — Resting at the First-Aid Station.\n" +
+                  "Forest's Night Bloom activates. Phoenix's Dodge refreshes.";
         }
     }
 
@@ -286,13 +310,15 @@ public class UIManager : MonoBehaviour
         string zone  = SceneLoader.GetCurrentZoneName();
         int    alive = TeamManager.Instance?.GetAliveCount() ?? 0;
 
-        if (completeTitle) completeTitle.text = "✦ Zone Cleared! ✦";
+        if (completeTitle) completeTitle.text = "Zone Cleared!";
         if (zoneName)      zoneName.text      = $"{zone} Complete";
         if (aliveCount)    aliveCount.text    = $"Survivors: {alive} / 7";
         if (levelLabel)    levelLabel.text    = $"Level {level} / 3";
 
         if (nextLevelButton)
         {
+            ApplyNextLevelButtonLayout();
+
             var txt = nextLevelButton.GetComponentInChildren<TextMeshProUGUI>();
             bool isLastZone = level >= 3;
             if (txt) txt.text = isLastZone ? "See Ending ->" : "Enter Next Zone ->";
@@ -300,6 +326,18 @@ public class UIManager : MonoBehaviour
             nextLevelButton.onClick.AddListener(() =>
                 GameLoop.Instance?.ProceedToNextZone());
         }
+    }
+
+    private void ApplyNextLevelButtonLayout()
+    {
+        var rectTransform = nextLevelButton != null ? nextLevelButton.GetComponent<RectTransform>() : null;
+        if (rectTransform == null) return;
+
+        rectTransform.anchorMin = new Vector2(0.5f, 0f);
+        rectTransform.anchorMax = new Vector2(0.5f, 0f);
+        rectTransform.pivot     = new Vector2(0.5f, 0.5f);
+        rectTransform.anchoredPosition = new Vector2(0f, 80f);
+        rectTransform.sizeDelta = new Vector2(350f, 60f);
     }
 
     // -------------------------------------------------------
@@ -314,7 +352,7 @@ public class UIManager : MonoBehaviour
         PauseManager.Instance?.Pause();
         pausePanel.SetActive(true);
 
-        // Unlock and show cursor so player can click pause UI.
+        // Unlock cursor so player can click pause buttons
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible   = true;
 
@@ -333,7 +371,7 @@ public class UIManager : MonoBehaviour
         if (_panelBeforePause != null)
             _panelBeforePause.SetActive(true);
 
-        // Return to camera-control cursor behavior during gameplay.
+        // Re-lock cursor for 3D gameplay
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible   = false;
 
@@ -345,7 +383,7 @@ public class UIManager : MonoBehaviour
         _isPaused = false;
         PauseManager.Instance?.Resume();
 
-        // Ensure menu scene starts with an unlocked, visible cursor.
+        // Always unlock cursor when going to main menu
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible   = true;
 
@@ -355,11 +393,10 @@ public class UIManager : MonoBehaviour
     public void OnSavePressed()
     {
         SaveData current = SaveSystem.Load();
-
-        current.lastSceneBuildIndex = Mathf.Clamp(SceneManager.GetActiveScene().buildIndex, 1, 3);
+        current.lastSceneBuildIndex = Mathf.Clamp(
+            SceneManager.GetActiveScene().buildIndex, 1, 3);
         int currentDifficulty = GameLoop.Instance?.Difficulty ?? current.lastDifficulty;
         current.lastDifficulty = Mathf.Clamp(currentDifficulty, 1, 7);
-
         SaveSystem.Save(current);
         Debug.Log("[UI] Game Saved!");
 
@@ -370,24 +407,17 @@ public class UIManager : MonoBehaviour
     private System.Collections.IEnumerator FlashSaveConfirm(TextMeshProUGUI txt)
     {
         string original = txt.text;
-        txt.text = "SAVED ✓";
+        txt.text = "SAVED";
         yield return new WaitForSecondsRealtime(1.5f);
         txt.text = original;
     }
 
-    // Night Continue button → bridges to GameLoop
+    // Night Continue button bridges to GameLoop
     public void OnNightContinuePressed()
     {
-        // Make sure night-panel button is always clickable.
-        Cursor.lockState = CursorLockMode.None;
-        Cursor.visible   = true;
-
         GameLoop.Instance?.OnNightContinuePressed();
         Debug.Log("[UI] Night continue pressed");
-
-        // Re-lock after continuing back into gameplay flow.
-        Cursor.lockState = CursorLockMode.Locked;
-        Cursor.visible   = false;
+        // Cursor stays unlocked — HandlePhase(DayExploration) will lock it
     }
 
     // -------------------------------------------------------
@@ -460,9 +490,11 @@ public class UIManager : MonoBehaviour
     public void ShowDifficultyScreen()
     {
         ShowOnly(difficultyPanel);
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible   = true;
+
         var save = SaveSystem.Load();
 
-        // If no container exists, we cannot present choices: safely continue with the saved/default difficulty.
         if (!difficultyContainer)
         {
             int fallbackDiff = Mathf.Clamp(save.maxDifficulty, 1, 7);
@@ -471,12 +503,12 @@ public class UIManager : MonoBehaviour
             return;
         }
 
-        // Normal path: build dynamic buttons from prefab.
         if (difficultyButtonPrefab)
         {
             foreach (Transform t in difficultyContainer) Destroy(t.gameObject);
 
-            for (int d = save.maxDifficulty; d >= 1; d--)
+            int maxDiff = Mathf.Max(save.maxDifficulty, 1);
+            for (int d = maxDiff; d >= 1; d--)
             {
                 int    diff = d;
                 string name = GameData.DIFFICULTIES[d].difficultyName;
@@ -486,25 +518,17 @@ public class UIManager : MonoBehaviour
                 if (txt) txt.text = $"{d}. {name}";
                 if (btn) btn.onClick.AddListener(() => GameLoop.Instance?.StartGame(diff));
             }
-
             return;
         }
 
-        // Fallback path for scenes where prefab refs were not assigned:
-        // wire any existing child buttons in the container from hardest to easiest.
         var existingButtons = difficultyContainer.GetComponentsInChildren<Button>(true);
         if (existingButtons != null && existingButtons.Length > 0)
         {
-            int d = save.maxDifficulty;
+            int d = Mathf.Max(save.maxDifficulty, 1);
             foreach (var btn in existingButtons)
             {
                 if (btn == null) continue;
-                if (d < 1)
-                {
-                    btn.gameObject.SetActive(false);
-                    continue;
-                }
-
+                if (d < 1) { btn.gameObject.SetActive(false); continue; }
                 int diff = d;
                 string name = GameData.DIFFICULTIES[diff].difficultyName;
                 var txt = btn.GetComponentInChildren<TextMeshProUGUI>();
@@ -514,17 +538,12 @@ public class UIManager : MonoBehaviour
                 btn.gameObject.SetActive(true);
                 d--;
             }
-
-            Debug.LogWarning("[UI] Difficulty prefab missing; using existing difficulty buttons in scene.");
             return;
         }
 
-        // Last-resort safeguard: do not block progression.
-        {
-            int fallbackDiff = Mathf.Clamp(save.maxDifficulty, 1, 7);
-            Debug.LogWarning($"[UI] Difficulty prefab and scene buttons missing. Auto-starting difficulty {fallbackDiff}.");
-            GameLoop.Instance?.StartGame(fallbackDiff);
-        }
+        int fallback = Mathf.Clamp(save.maxDifficulty, 1, 7);
+        Debug.LogWarning($"[UI] No difficulty UI found. Auto-starting difficulty {fallback}.");
+        GameLoop.Instance?.StartGame(fallback);
     }
 
     // -------------------------------------------------------
@@ -534,9 +553,12 @@ public class UIManager : MonoBehaviour
         ShowOnly(endingPanel);
         _maxEnemyHp = 0;
 
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible   = true;
+
         var (title, body) = key switch
         {
-            "TrueEnding"    => ("✦ TRUE ENDING — The Last Spark ✦",
+            "TrueEnding"    => ("TRUE ENDING — The Last Spark",
                                 "Astra alone remained, her vision guiding the team home.\n" +
                                 "The Spark is restored. New Game+ Unlocked!"),
             "StillStanding" => ("ENDING: Still Standing",

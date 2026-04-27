@@ -27,8 +27,14 @@ public class PauseManager : MonoBehaviour
         _pauseables.Clear();
 
         // Player input and movement
-        var playerInput = FindFirstObjectByType<RPGCharacterAnims.RPGCharacterInputController>();
-        if (playerInput != null) _pauseables.Add(playerInput);
+        var playerInputSystem = FindFirstObjectByType<RPGCharacterAnims.RPGCharacterInputSystemController>();
+        if (playerInputSystem != null) _pauseables.Add(playerInputSystem);
+
+        var legacyInput = FindFirstObjectByType<RPGCharacterAnims.RPGCharacterInputController>();
+        if (legacyInput != null)
+        {
+            legacyInput.enabled = false;
+        }
 
         var playerMovement = FindFirstObjectByType<RPGCharacterAnims.RPGCharacterMovementController>();
         if (playerMovement != null) _pauseables.Add(playerMovement);
@@ -101,9 +107,13 @@ public class PauseManager : MonoBehaviour
         // Restore time
         Time.timeScale = 1f;
 
-        // Re-enable all registered components
+        // Re-enable registered components — never re-enable the legacy controller.
         foreach (var mb in _pauseables)
-            if (mb != null) mb.enabled = true;
+        {
+            if (mb == null) continue;
+            if (mb is RPGCharacterAnims.RPGCharacterInputController) continue;
+            mb.enabled = true;
+        }
 
         Debug.Log("[PauseManager] Game Resumed");
     }

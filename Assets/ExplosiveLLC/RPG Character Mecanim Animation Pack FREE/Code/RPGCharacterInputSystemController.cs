@@ -29,16 +29,12 @@ namespace RPGCharacterAnims
         private bool inputAttackL;
         private bool inputAttackR;
 		private bool inputRoll;
-		private bool inputAim;
 		private Vector2 inputMovement;
-		private bool inputFace;
-		private Vector2 inputFacing;
 		private bool inputSwitchUp;
 		private bool inputSwitchDown;
 
 		// Variables.
 		private Vector3 moveInput;
-		private Vector3 currentAim;
 		private float inputPauseTimeout = 0;
 		private bool inputPaused = false;
 
@@ -46,7 +42,6 @@ namespace RPGCharacterAnims
         {
             rpgCharacterController = GetComponent<RPGCharacterController>();
 			rpgInputs = new @RPGInputs();
-			currentAim = Vector3.zero;
         }
 
 		private void OnEnable()
@@ -56,10 +51,6 @@ namespace RPGCharacterAnims
 		{ rpgInputs.Disable(); }
 
 		public bool HasMoveInput() => moveInput.magnitude > 0.1f;
-
-		public bool HasAimInput() => inputAim;
-
-		public bool HasFacingInput() => inputFacing != Vector2.zero || inputFace;
 
 		private void Update()
 		{
@@ -71,13 +62,12 @@ namespace RPGCharacterAnims
 
 			if (!inputPaused) { Inputs(); }
 
+			EnsureLookActionsDisabled();
+
 			Moving();
 			Jumping();
 			Damage();
 			SwitchWeapons();
-			Strafing();
-			Facing();
-			Aiming();
 			Rolling();
 			Attacking();
 		}
@@ -101,14 +91,11 @@ namespace RPGCharacterAnims
 				inputAttackL = rpgInputs.RPGCharacter.AttackL.WasPressedThisFrame();
 				inputAttackR = rpgInputs.RPGCharacter.AttackR.WasPressedThisFrame();
 				inputKnockdown = rpgInputs.RPGCharacter.Knockdown.WasPressedThisFrame();
-				inputFace = rpgInputs.RPGCharacter.Face.IsPressed();
-				inputFacing = rpgInputs.RPGCharacter.Facing.ReadValue<Vector2>();
 				inputJump = rpgInputs.RPGCharacter.Jump.IsPressed();
 				inputLightHit = rpgInputs.RPGCharacter.LightHit.WasPressedThisFrame();
 				inputMovement = rpgInputs.RPGCharacter.Move.ReadValue<Vector2>();
 				if (inputMovement.magnitude < moveDeadzone) { inputMovement = Vector2.zero; }
 				inputRoll = rpgInputs.RPGCharacter.Roll.WasPressedThisFrame();
-				inputAim = rpgInputs.RPGCharacter.Aim.IsPressed();
 				inputSwitchDown = rpgInputs.RPGCharacter.WeaponDown.WasPressedThisFrame();
 				inputSwitchUp = rpgInputs.RPGCharacter.WeaponUp.WasPressedThisFrame();
 
@@ -130,6 +117,12 @@ namespace RPGCharacterAnims
 			catch (System.Exception) { Debug.LogError("Inputs not found!  " +
 				"Make sure your project is using the new InputSystem: Edit>Project Settings>Player>Active Input Handling  - change to 'Input System Package (New)'."); }
 			}
+
+		private void EnsureLookActionsDisabled()
+		{
+			if (rpgCharacterController.CanEndAction("Face")) { rpgCharacterController.EndAction("Face"); }
+			if (rpgCharacterController.CanEndAction("Strafe")) { rpgCharacterController.EndAction("Strafe"); }
+		}
 
 			public void Moving()
 		{
@@ -157,47 +150,6 @@ namespace RPGCharacterAnims
 			if (!rpgCharacterController.CanStartAction("DiveRoll")) { return; }
 
 			rpgCharacterController.StartAction("DiveRoll", 1);
-		}
-
-		private void Aiming()
-		{ Strafing(); }
-
-		private void Strafing()
-		{
-			if (rpgCharacterController.canStrafe) {
-				if (inputAim) {
-					if (rpgCharacterController.CanStartAction("Strafe")) { rpgCharacterController.StartAction("Strafe"); }
-				}
-				else {
-					if (rpgCharacterController.CanEndAction("Strafe")) { rpgCharacterController.EndAction("Strafe"); }
-				}
-			}
-		}
-
-		private void Facing()
-		{
-			if (rpgCharacterController.canFace) {
-				if (HasFacingInput()) {
-					if (inputFace) {
-
-						// Get world position from mouse position on screen and convert to direction from character.
-						Plane playerPlane = new Plane(Vector3.up, transform.position);
-						Ray ray = Camera.main.ScreenPointToRay(Mouse.current.position.ReadValue());
-						float hitdist = 0.0f;
-						if (playerPlane.Raycast(ray, out hitdist)) {
-							Vector3 targetPoint = ray.GetPoint(hitdist);
-							Vector3 lookTarget = new Vector3(targetPoint.x - transform.position.x, transform.position.z - targetPoint.z, 0);
-							rpgCharacterController.SetFaceInput(lookTarget);
-						}
-					}
-					else { rpgCharacterController.SetFaceInput(new Vector3(inputFacing.x, inputFacing.y, 0)); }
-
-					if (rpgCharacterController.CanStartAction("Face")) { rpgCharacterController.StartAction("Face"); }
-				}
-				else {
-					if (rpgCharacterController.CanEndAction("Face")) { rpgCharacterController.EndAction("Face"); }
-				}
-			}
 		}
 
 		private void Attacking()

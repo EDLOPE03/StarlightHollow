@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 using System;
 using System.Collections;
+using RPGCharacterAnims;
 
 public enum GamePhase
 {
@@ -46,6 +47,7 @@ public class GameLoop : MonoBehaviour
     private bool _encounterCombatActive = false;
     private bool _defeatPending;
     private bool _isDefeatRecoveryNight;
+    private bool _allZonesDone = false;
     private bool _runInitialized;
     private Coroutine _zoneRoutine;
 
@@ -79,12 +81,12 @@ public class GameLoop : MonoBehaviour
     {
         Difficulty = selectedDifficulty;
         Save.lastDifficulty = Difficulty;
-        Save.lastSceneBuildIndex = Mathf.Clamp(SceneManager.GetActiveScene().buildIndex, 1, 3);
-        // Persist selected difficulty immediately so Continue restores the same team size.
+        Save.lastSceneBuildIndex = Mathf.Clamp(
+            SceneManager.GetActiveScene().buildIndex, 1, 3);
         SaveSystem.Save(Save);
 
         RefreshSceneReferences();
-        teamManager?.SetupTeam(Difficulty);
+        teamManager?.SetupTeamForLevel(Mathf.Max(1, CurrentLevel), Difficulty);
         _runInitialized = true;
         CurrentDay = 0;
         StartZoneRoutine();
@@ -128,39 +130,30 @@ public class GameLoop : MonoBehaviour
             () => _combatDone = true
         );
 
-        // Wait until combat finishes
         yield return new WaitUntil(() => _combatDone);
         yield return new WaitForSeconds(1f);
 
         _encounterCombatActive = false;
 
-        // Check if team is still alive after combat
         if (!teamManager.IsTeamAlive())
         {
-            // All characters downed — defer to retry flow in ZoneRoutine.
-            Debug.Log("[GameLoop] All characters downed — scheduling retry flow");
+            Debug.Log("[GameLoop] All characters downed — scheduling retry");
             _defeatPending = true;
-            _encounterCombatActive = false;
             yield break;
         }
 
-        // Return to exploration
         SetPhase(GamePhase.DayExploration);
         OnDayStarted?.Invoke(CurrentDay, CurrentZone);
 
-        // Check if all zones for today are done
         CheckAllZonesDone();
 
         Debug.Log("[GameLoop] Encounter done — back to exploration");
     }
 
     // -------------------------------------------------------
-    // Check if all encounter zones have been triggered
     private void CheckAllZonesDone()
     {
-        var zones = FindObjectsByType<EncounterZone>(FindObjectsSortMode.None);
-
-        // Count how many zones exist and how many are done
+        var zones   = FindObjectsByType<EncounterZone>(FindObjectsSortMode.None);
         int total   = zones.Length;
         int cleared = 0;
 
@@ -169,15 +162,12 @@ public class GameLoop : MonoBehaviour
 
         Debug.Log($"[GameLoop] Zones cleared: {cleared} / {total}");
 
-        // If all zones are cleared trigger night early
         if (cleared >= total && total > 0)
         {
             Debug.Log("[GameLoop] All encounter zones cleared — triggering night");
             _allZonesDone = true;
         }
     }
-
-    private bool _allZonesDone = false;
 
     // -------------------------------------------------------
     private void StartZoneRoutine()
@@ -190,7 +180,7 @@ public class GameLoop : MonoBehaviour
     {
         for (int day = 1; day <= GameData.TOTAL_DAYS; day++)
         {
-            CurrentDay   = day;
+            CurrentDay    = day;
             _allZonesDone = false;
 
             // Reset all encounter zones for the new day
@@ -206,23 +196,16 @@ public class GameLoop : MonoBehaviour
 
             Debug.Log($"[GameLoop] Day {day} started — explore and find encounter zones");
 
-            // Wait until ALL zones are cleared OR team is wiped
+            // Wait until all zones cleared OR team wiped
             yield return new WaitUntil(() =>
                 _allZonesDone ||
-                !teamManager.IsTeamAlive()
+                _defeatPending
             );
 
-            // If team was wiped end the game
-            if (!teamManager.IsTeamAlive())
-            {
-                TriggerEnding();
-                yield break;
-            }
-
-            // Wait for any active combat to fully finish
+            // Wait for any active combat to finish
             yield return new WaitUntil(() => !_encounterCombatActive);
 
-            // Team wipe: use Night screen as a retry/reset opportunity.
+            // Handle defeat retry
             if (_defeatPending)
             {
                 yield return StartCoroutine(HandleDefeatRetry());
@@ -230,40 +213,55 @@ public class GameLoop : MonoBehaviour
                 continue;
             }
 
-            // If all encounter zones are cleared, this level is complete.
+            // All zones cleared — level complete
             if (_allZonesDone)
             {
+                yield return new WaitForSeconds(0.5f);
+
+                // Night phase before level complete
+                _nightDone = false;
+                SetPhase(GamePhase.NightPhase);
+                OnNightStarted?.Invoke(day);
+                teamManager.ApplyNightAbilities();
+
+                Save.totalRuns++;
+                Save.lastSceneBuildIndex = Mathf.Clamp(
+                    SceneManager.GetActiveScene().buildIndex, 1, 3);
+                if (Difficulty > 0) Save.lastDifficulty = Difficulty;
+                SaveSystem.Save(Save);
+
+                Debug.Log($"[GameLoop] Night {day} — waiting for player to continue");
+                yield return new WaitUntil(() => _nightDone);
+                yield return new WaitForSeconds(0.5f);
+
+                // If this was the last day go to level complete
                 SetPhase(GamePhase.LevelComplete);
                 OnLevelComplete?.Invoke(CurrentLevel);
                 yield break;
             }
 
-            // Small pause before night
+            // Normal night after partial exploration
             yield return new WaitForSeconds(1f);
 
-            // --- Night Phase ---
             _nightDone = false;
             SetPhase(GamePhase.NightPhase);
             OnNightStarted?.Invoke(day);
             teamManager.ApplyNightAbilities();
 
-            // Auto save each night
             Save.totalRuns++;
-            Save.lastSceneBuildIndex = Mathf.Clamp(SceneManager.GetActiveScene().buildIndex, 1, 3);
+            Save.lastSceneBuildIndex = Mathf.Clamp(
+                SceneManager.GetActiveScene().buildIndex, 1, 3);
             if (Difficulty > 0) Save.lastDifficulty = Difficulty;
             SaveSystem.Save(Save);
 
             Debug.Log($"[GameLoop] Night {day} — waiting for player to continue");
-
-            // Wait for player to press Continue to Morning
             yield return new WaitUntil(() => _nightDone);
-
             yield return new WaitForSeconds(0.5f);
 
             Debug.Log($"[GameLoop] Morning — starting Day {day + 1}");
         }
 
-        // --- All 5 Days Complete — Level Done ---
+        // All 5 days done — level complete
         SetPhase(GamePhase.LevelComplete);
         OnLevelComplete?.Invoke(CurrentLevel);
 
@@ -304,8 +302,8 @@ public class GameLoop : MonoBehaviour
 
         Save.highestDifficultyClear = Mathf.Max(
             Save.highestDifficultyClear, Difficulty);
-
-        Save.lastSceneBuildIndex = Mathf.Clamp(SceneManager.GetActiveScene().buildIndex, 1, 3);
+        Save.lastSceneBuildIndex = Mathf.Clamp(
+            SceneManager.GetActiveScene().buildIndex, 1, 3);
         if (Difficulty > 0) Save.lastDifficulty = Difficulty;
         SaveSystem.Save(Save);
 
@@ -338,9 +336,12 @@ public class GameLoop : MonoBehaviour
     private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
     {
         RefreshSceneState();
+        ResetTransitionState(scene.buildIndex);
         HandleSceneEntry(scene.buildIndex);
     }
 
+    // -------------------------------------------------------
+    // KEY FIX — Always auto-start, never wait for difficulty select
     private void HandleSceneEntry(int buildIndex)
     {
         if (buildIndex == SceneLoader.SCENE_MAIN_MENU)
@@ -363,31 +364,21 @@ public class GameLoop : MonoBehaviour
 
         RefreshSceneReferences();
 
-        // Build a robust restored difficulty for any resumed gameplay scene.
-        int restoredDifficulty = Mathf.Clamp(Save.lastDifficulty, 1, 7);
-        if (restoredDifficulty == 1 && Save.maxDifficulty > 1)
-        {
-            restoredDifficulty = Mathf.Clamp(Save.maxDifficulty, 1, 7);
-            Debug.LogWarning($"[GameLoop] Promoting restored difficulty to max unlocked ({restoredDifficulty}).");
-        }
+        // Always auto-start — no difficulty select screen in game scenes
+        // Difficulty select happens at Main Menu level only
+        int restoredDifficulty = Mathf.Clamp(
+            Save.lastDifficulty > 0 ? Save.lastDifficulty : Save.maxDifficulty,
+            1, 7);
 
-        if (!_runInitialized)
+        if (!_runInitialized || Difficulty <= 0)
         {
-            if (CurrentLevel == 1)
-            {
-                SetPhase(GamePhase.DifficultySelect);
-                return;
-            }
-
             Difficulty = restoredDifficulty;
-            teamManager?.SetupTeam(Difficulty);
             _runInitialized = true;
+            Debug.Log($"[GameLoop] Auto-starting Level {CurrentLevel} at difficulty {Difficulty} in {CurrentZone}");
         }
-        else if (Difficulty <= 0)
-        {
-            Difficulty = restoredDifficulty;
-            teamManager?.SetupTeam(Difficulty);
-        }
+
+        teamManager?.SetupTeamForLevel(CurrentLevel, Difficulty);
+        Debug.Log($"[GameLoop] Team configured for level {CurrentLevel}: {teamManager?.GetAliveCount() ?? 0} active");
 
         CurrentDay = 0;
         StartZoneRoutine();
@@ -407,6 +398,66 @@ public class GameLoop : MonoBehaviour
             combatSystem = FindFirstObjectByType<CombatSystem>();
     }
 
+    private void ResetTransitionState(int buildIndex)
+    {
+        _combatDone = false;
+        _nightDone = false;
+        _encounterCombatActive = false;
+        _defeatPending = false;
+        _isDefeatRecoveryNight = false;
+
+        if (PauseManager.Instance != null)
+        {
+            PauseManager.Instance.Resume();
+            PauseManager.Instance.RefreshPauseables();
+        }
+
+        bool isGameplayScene = buildIndex != SceneLoader.SCENE_MAIN_MENU &&
+                       buildIndex != SceneLoader.SCENE_ENDING;
+
+        if (isGameplayScene)
+        {
+            // Enforce correct controller state immediately and again next frame
+            // to beat any first-Update race where the legacy controller could
+            // start the Face action (A/D = look instead of move).
+            EnforceInputControllers();
+            StartCoroutine(EnforceInputControllersNextFrame());
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible   = false;
+        }
+        else
+        {
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible   = true;
+        }
+    }
+
+    private void EnforceInputControllers()
+    {
+        // Disable every legacy input controller in the scene.
+        foreach (var c in FindObjectsByType<RPGCharacterInputController>(FindObjectsSortMode.None))
+            c.enabled = false;
+
+        // Make sure the new Input System controller is enabled.
+        foreach (var c in FindObjectsByType<RPGCharacterInputSystemController>(FindObjectsSortMode.None))
+            c.enabled = true;
+
+        // Clear any Face / Strafe state left over from the previous scene or
+        // from the legacy controller running for one frame before being disabled.
+        foreach (var c in FindObjectsByType<RPGCharacterController>(FindObjectsSortMode.None))
+        {
+            if (c.CanEndAction("Face"))   c.EndAction("Face");
+            if (c.CanEndAction("Strafe")) c.EndAction("Strafe");
+        }
+    }
+
+    private IEnumerator EnforceInputControllersNextFrame()
+    {
+        yield return null;
+        EnforceInputControllers();
+    }
+
+    // -------------------------------------------------------
     private IEnumerator HandleDefeatRetry()
     {
         _isDefeatRecoveryNight = true;
@@ -415,12 +466,12 @@ public class GameLoop : MonoBehaviour
         SetPhase(GamePhase.NightPhase);
         OnNightStarted?.Invoke(CurrentDay);
 
-        Debug.Log("[GameLoop] Defeat recovery: waiting for Continue to retry this day");
+        Debug.Log("[GameLoop] Defeat recovery — waiting for Continue");
         yield return new WaitUntil(() => _nightDone);
 
         RecoverTeamForRetry();
 
-        _defeatPending = false;
+        _defeatPending         = false;
         _isDefeatRecoveryNight = false;
     }
 
@@ -431,11 +482,8 @@ public class GameLoop : MonoBehaviour
         foreach (var ch in teamManager.Team)
         {
             if (ch == null) continue;
-
             if (ch.IsAlive()) ch.Heal(ch.maxHp);
-            else ch.Revive(ch.maxHp);
-
-            // Reset per-night character ability state for the retry attempt.
+            else              ch.Revive(ch.maxHp);
             ch.OnNightPhase();
         }
 

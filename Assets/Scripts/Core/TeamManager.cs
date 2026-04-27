@@ -26,17 +26,24 @@ public class TeamManager : MonoBehaviour
         DontDestroyOnLoad(gameObject);
     }
 
-    // --- Build team based on difficulty ---
+    // --- Build team based on current level rules ---
     public void SetupTeam(int difficulty)
+    {
+        int level = Mathf.Max(1, SceneLoader.GetCurrentLevel());
+        SetupTeamForLevel(level, difficulty);
+    }
+
+    public void SetupTeamForLevel(int level, int difficulty)
     {
         CurrentDifficulty = difficulty;
         Team.Clear();
 
-        int activeCount = GameData.DIFFICULTIES[difficulty].activeCount;
+        int activeCount = GetActiveCountForLevel(level);
+        var rosterByPower = GetRosterByPower();
 
-        for (int i = 0; i < GameData.CHARACTER_ORDER.Count; i++)
+        for (int i = 0; i < rosterByPower.Count; i++)
         {
-            string       charName = GameData.CHARACTER_ORDER[i];
+            string       charName = rosterByPower[i];
             CharacterData data    = GameData.CHARACTERS[charName];
 
             var ch = new Character(charName, data.maxHp, data.baseAtk);
@@ -54,8 +61,25 @@ public class TeamManager : MonoBehaviour
             Team.Add(ch);
         }
 
-        Debug.Log($"[Team] Setup: {GetAliveCount()} active of {Team.Count}");
+        Debug.Log($"[Team] Setup for level {level}: {GetAliveCount()} active of {Team.Count}");
         OnTeamSetup?.Invoke(Team);
+    }
+
+    private static int GetActiveCountForLevel(int level)
+    {
+        if (level <= 1) return 7;
+        if (level == 2) return 5;
+        return 2;
+    }
+
+    private static List<string> GetRosterByPower()
+    {
+        return GameData.CHARACTERS
+            .OrderByDescending(kvp => kvp.Value.baseAtk)
+            .ThenByDescending(kvp => kvp.Value.maxHp)
+            .ThenBy(kvp => kvp.Key)
+            .Select(kvp => kvp.Key)
+            .ToList();
     }
 
     // --- Night Phase: apply all passive abilities ---

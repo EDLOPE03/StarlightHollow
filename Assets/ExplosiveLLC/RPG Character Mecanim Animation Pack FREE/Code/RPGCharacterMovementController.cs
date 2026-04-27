@@ -48,7 +48,7 @@ namespace RPGCharacterAnims
         /// <summary>
         /// Movement speed while walking and strafing.
         /// </summary>
-        public float walkSpeed = .5f;
+        public float walkSpeed = .65f;
 
         /// <summary>
         /// Walking acceleration.
@@ -58,7 +58,7 @@ namespace RPGCharacterAnims
         /// <summary>
         /// Movement speed while running. (the default movement)
         /// </summary>
-        public float runSpeed = 1f;
+        public float runSpeed = 1.15f;
 
         /// <summary>
         /// Running acceleration.
